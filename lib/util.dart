@@ -50,3 +50,15 @@ Color senderColor(String name) {
   }
   return _senderColors[h % _senderColors.length];
 }
+
+final _mediaEmoji =
+    RegExp(r'^(\u{1F3A4}|\u{1F4F7}|\u{1F3A5}|\u{1F3B5}|\u{1F4C4})\uFE0F?\s*', unicode: true);
+final _mediaPlaceholder = RegExp(
+    r'^(voice message|photo|video|audio|document|sticker|gif)(\s*\(\d+(:\d+)+\))?$',
+    caseSensitive: false);
+
+/// The message text minus WhatsApp's media emoji/placeholder, i.e. the caption.
+String mediaCaption(String text) {
+  final t = text.trim().replaceFirst(_mediaEmoji, '');
+  return _mediaPlaceholder.hasMatch(t) ? '' : t;
+}

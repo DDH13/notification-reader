@@ -17,6 +17,10 @@ class WaNotificationListener : NotificationListenerService() {
 
     private val executor = Executors.newSingleThreadExecutor()
 
+    private val mediaWatcher by lazy {
+        MediaWatcher(applicationContext, executor) { notifyChanged() }
+    }
+
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         if (sbn.packageName !in WA_PACKAGES) return
         val n = sbn.notification ?: return
@@ -41,12 +45,22 @@ class WaNotificationListener : NotificationListenerService() {
         }
     }
 
+    override fun onListenerConnected() {
+        super.onListenerConnected()
+        instance = this
+        mediaWatcher.start()
+    }
+
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        mediaWatcher.stop()
+        instance = null
         requestRebind(android.content.ComponentName(this, WaNotificationListener::class.java))
     }
 
     override fun onDestroy() {
+        mediaWatcher.stop()
+        instance = null
         executor.shutdown()
         super.onDestroy()
     }
@@ -118,16 +132,27 @@ class WaNotificationListener : NotificationListenerService() {
         val chatId = db.upsertChat(p.key, p.title, p.isGroup, p.pkg, lastTs)
 
         var inserted = false
+        var newMedia = false
         for (m in p.messages) {
             val deleted = m.text.equals(DELETED_TEXT, ignoreCase = true)
-            if (db.insertMessage(chatId, m.sender, m.text, m.ts, deleted)) inserted = true
+            if (db.insertMessage(chatId, m.sender, m.text, m.ts, deleted) == -1L) continue
+            inserted = true
+            if (!deleted && MediaKind.fromText(m.text) != null) {
+                newMedia = true
+                Log.d(TAG, "Media notification text: ${m.text}")
+            }
         }
         p.avatar?.let { saveAvatar(db, chatId, it) }
 
-        if (inserted) {
-            sendBroadcast(Intent(ACTION_NEW_MESSAGE).setPackage(packageName))
-        }
+        if (newMedia) mediaWatcher.tryMatch()
+        if (inserted) notifyChanged()
     }
+
+    private fun notifyChanged() {
+        sendBroadcast(Intent(ACTION_NEW_MESSAGE).setPackage(packageName))
+    }
+
+    fun restartMediaWatcher() = mediaWatcher.start()
 
     private fun saveAvatar(db: NotificationDb, chatId: Long, bmp: Bitmap) {
         val dir = File(filesDir, "avatars").apply { mkdirs() }
@@ -151,6 +176,8 @@ class WaNotificationListener : NotificationListenerService() {
 
     companion object {
         const val ACTION_NEW_MESSAGE = "dev.dineth.recover.NEW_MESSAGE"
+
+        @Volatile var instance: WaNotificationListener? = null
         private const val TAG = "WaNotificationListener"
         private const val DELETED_TEXT = "This message was deleted"
         private val WA_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b")

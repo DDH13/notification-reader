@@ -35,6 +35,9 @@ class Message {
     required this.text,
     required this.timestamp,
     required this.isDeletedNotice,
+    this.mediaKind,
+    this.mediaPath,
+    this.mediaMime,
   });
 
   final int id;
@@ -42,6 +45,9 @@ class Message {
   final String text;
   final int timestamp;
   final bool isDeletedNotice;
+  final String? mediaKind;
+  final String? mediaPath;
+  final String? mediaMime;
 
   DateTime get time => DateTime.fromMillisecondsSinceEpoch(timestamp);
 
@@ -51,5 +57,33 @@ class Message {
         text: m['text'] as String,
         timestamp: m['timestamp'] as int,
         isDeletedNotice: (m['is_deleted_notice'] as int) == 1,
+        mediaKind: m['media_kind'] as String?,
+        mediaPath: m['media_path'] as String?,
+        mediaMime: m['media_mime'] as String?,
+      );
+}
+
+/// A captured media file that has no message (see AppDb.unlinkedMedia).
+class MediaItem {
+  const MediaItem({
+    required this.kind,
+    required this.path,
+    required this.origName,
+    this.mime,
+    this.fileTs,
+  });
+
+  final String kind;
+  final String path;
+  final String origName;
+  final String? mime;
+  final int? fileTs;
+
+  factory MediaItem.fromMap(Map<String, Object?> m) => MediaItem(
+        kind: m['kind'] as String,
+        path: m['path'] as String,
+        origName: m['orig_name'] as String,
+        mime: m['mime'] as String?,
+        fileTs: m['file_ts'] as int?,
       );
 }

@@ -8,6 +8,7 @@ import '../data/models.dart';
 import '../platform/listener_bridge.dart';
 import '../util.dart';
 import 'chat_screen.dart';
+import 'unlinked_media_screen.dart';
 
 class ChatListScreen extends StatefulWidget {
   const ChatListScreen({super.key});
@@ -22,6 +23,8 @@ class _ChatListScreenState extends State<ChatListScreen>
   bool _loaded = false;
   bool _searching = false;
   String _query = '';
+  bool? _storageOk;
+  bool _bannerDismissed = false;
   StreamSubscription<void>? _sub;
 
   @override
@@ -44,7 +47,15 @@ class _ChatListScreenState extends State<ChatListScreen>
     if (state == AppLifecycleState.resumed) _load();
   }
 
+  Future<void> _checkStorage() async {
+    final ok = await ListenerBridge.hasStorageAccess();
+    // Access was just granted: have the service start watching right away.
+    if (ok && _storageOk != true) await ListenerBridge.restartMediaWatcher();
+    if (mounted && ok != _storageOk) setState(() => _storageOk = ok);
+  }
+
   Future<void> _load() async {
+    _checkStorage();
     final chats = await AppDb.instance.chats();
     imageCache.clear(); // avatar files may have been rewritten in place
     if (mounted) {
@@ -91,21 +102,46 @@ class _ChatListScreenState extends State<ChatListScreen>
               _query = '';
             }),
           ),
+          PopupMenuButton<String>(
+            onSelected: (_) => Navigator.of(context).push(MaterialPageRoute<void>(
+                builder: (_) => const UnlinkedMediaScreen())),
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'unlinked', child: Text('Unlinked media')),
+            ],
+          ),
         ],
       ),
-      body: !_loaded
-          ? const Center(child: CircularProgressIndicator())
-          : shown.isEmpty
-              ? _Empty(searching: q.isNotEmpty)
-              : ListView.separated(
-                  itemCount: shown.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, indent: 76),
-                  itemBuilder: (_, i) => _ChatTile(
-                    chat: shown[i],
-                    onTap: () => _open(shown[i]),
-                  ),
-                ),
+      body: Column(children: [
+        if (_storageOk == false && !_bannerDismissed)
+          MaterialBanner(
+            content: const Text(
+                'Allow All files access to also save voice notes and media.'),
+            actions: [
+              TextButton(
+                onPressed: () => setState(() => _bannerDismissed = true),
+                child: const Text('Dismiss'),
+              ),
+              TextButton(
+                onPressed: ListenerBridge.openStorageSettings,
+                child: const Text('Allow'),
+              ),
+            ],
+          ),
+        Expanded(child: _body(shown, q)),
+      ]),
+    );
+  }
+
+  Widget _body(List<Chat> shown, String q) {
+    if (!_loaded) return const Center(child: CircularProgressIndicator());
+    if (shown.isEmpty) return _Empty(searching: q.isNotEmpty);
+    return ListView.separated(
+      itemCount: shown.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 76),
+      itemBuilder: (_, i) => _ChatTile(
+        chat: shown[i],
+        onTap: () => _open(shown[i]),
+      ),
     );
   }
 }

@@ -14,4 +14,12 @@ void main() {
     expect(initials('bob'), 'B');
     expect(initials(''), '?');
   });
+
+  test('mediaCaption', () {
+    expect(mediaCaption('\u{1F3A4} Voice message (0:12)'), '');
+    expect(mediaCaption('\u{1F4F7} Photo'), '');
+    expect(mediaCaption('Sticker'), '');
+    expect(mediaCaption('\u{1F4F7} Sunset at the beach'), 'Sunset at the beach');
+    expect(mediaCaption('hello'), 'hello');
+  });
 }

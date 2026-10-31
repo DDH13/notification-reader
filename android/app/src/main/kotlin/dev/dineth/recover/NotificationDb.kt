@@ -45,6 +45,18 @@ class NotificationDb private constructor(context: Context) :
                 "ON messages(chat_id, sender, timestamp, text)"
         )
         db.execSQL("CREATE INDEX IF NOT EXISTS idx_chats_last_ts ON chats(last_ts DESC)")
+        db.execSQL(
+            """CREATE TABLE IF NOT EXISTS media(
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER UNIQUE REFERENCES messages(id) ON DELETE SET NULL,
+                kind TEXT NOT NULL,
+                path TEXT NOT NULL,
+                orig_name TEXT UNIQUE NOT NULL,
+                mime TEXT,
+                size INTEGER,
+                file_ts INTEGER,
+                captured_at INTEGER)"""
+        )
     }
 
     /** Inserts or updates the chat row and returns its id. */
@@ -73,10 +85,10 @@ class NotificationDb private constructor(context: Context) :
         )
     }
 
-    /** Returns true if a new row was inserted (false for duplicates). */
+    /** Returns the new row id, or -1 for a duplicate. */
     fun insertMessage(
         chatId: Long, sender: String, text: String, timestamp: Long, isDeletedNotice: Boolean,
-    ): Boolean {
+    ): Long {
         val values = ContentValues().apply {
             put("chat_id", chatId)
             put("sender", sender)
@@ -87,7 +99,74 @@ class NotificationDb private constructor(context: Context) :
         }
         return writableDatabase.insertWithOnConflict(
             "messages", null, values, SQLiteDatabase.CONFLICT_IGNORE
-        ) != -1L
+        )
+    }
+
+    class PendingMessage(val id: Long, val text: String, val timestamp: Long)
+
+    class UnmatchedMedia(val id: Long, val fileTs: Long)
+
+    fun hasMedia(origName: String): Boolean =
+        readableDatabase.rawQuery(
+            "SELECT 1 FROM media WHERE orig_name = ?", arrayOf(origName)
+        ).use { it.moveToFirst() }
+
+    /** Returns the new row id, or -1 if this file name was already stored. */
+    fun insertMedia(
+        kind: String, path: String, origName: String, mime: String?,
+        size: Long, fileTs: Long,
+    ): Long {
+        val values = ContentValues().apply {
+            put("kind", kind)
+            put("path", path)
+            put("orig_name", origName)
+            put("mime", mime)
+            put("size", size)
+            put("file_ts", fileTs)
+            put("captured_at", System.currentTimeMillis())
+        }
+        return writableDatabase.insertWithOnConflict(
+            "media", null, values, SQLiteDatabase.CONFLICT_IGNORE
+        )
+    }
+
+    fun linkMedia(mediaId: Long, messageId: Long) {
+        writableDatabase.execSQL(
+            "UPDATE media SET message_id = ? WHERE id = ?", arrayOf<Any>(messageId, mediaId)
+        )
+    }
+
+    /** Recent media-looking messages that have no media row yet, oldest first. */
+    fun pendingMediaMessages(kind: MediaKind, sinceTs: Long): List<PendingMessage> {
+        val out = mutableListOf<PendingMessage>()
+        readableDatabase.rawQuery(
+            """SELECT id, text, timestamp FROM messages
+               WHERE timestamp >= ? AND is_deleted_notice = 0
+                 AND id NOT IN (SELECT message_id FROM media WHERE message_id IS NOT NULL)
+               ORDER BY timestamp ASC, id ASC""",
+            arrayOf(sinceTs.toString()),
+        ).use {
+            while (it.moveToNext()) {
+                val text = it.getString(1)
+                if (MediaKind.fromText(text) == kind) {
+                    out += PendingMessage(it.getLong(0), text, it.getLong(2))
+                }
+            }
+        }
+        return out
+    }
+
+    fun unmatchedMedia(kind: MediaKind, sinceTs: Long): List<UnmatchedMedia> {
+        val out = mutableListOf<UnmatchedMedia>()
+        readableDatabase.rawQuery(
+            """SELECT id, file_ts FROM media
+               WHERE message_id IS NULL AND kind = ? AND file_ts >= ?
+               ORDER BY file_ts ASC, id ASC""",
+            arrayOf(kind.key, sinceTs.toString()),
+        ).use {
+            while (it.moveToNext()) out += UnmatchedMedia(it.getLong(0), it.getLong(1))
+        }
+        return out
     }
 
     companion object {

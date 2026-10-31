@@ -37,6 +37,16 @@ class AppDb {
           timestamp INTEGER NOT NULL,
           received_at INTEGER NOT NULL,
           is_deleted_notice INTEGER NOT NULL DEFAULT 0)''');
+        await db.execute('''CREATE TABLE IF NOT EXISTS media(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          message_id INTEGER UNIQUE REFERENCES messages(id) ON DELETE SET NULL,
+          kind TEXT NOT NULL,
+          path TEXT NOT NULL,
+          orig_name TEXT UNIQUE NOT NULL,
+          mime TEXT,
+          size INTEGER,
+          file_ts INTEGER,
+          captured_at INTEGER)''');
         await db.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_messages_unique '
             'ON messages(chat_id, sender, timestamp, text)');
         await db.execute(
@@ -60,12 +70,23 @@ class AppDb {
 
   Future<List<Message>> messages(int chatId) async {
     final db = await _database;
-    final rows = await db.query(
-      'messages',
-      where: 'chat_id = ?',
-      whereArgs: [chatId],
-      orderBy: 'timestamp ASC, id ASC',
-    );
+    final rows = await db.rawQuery('''
+      SELECT messages.*, m.kind AS media_kind, m.path AS media_path,
+        m.mime AS media_mime
+      FROM messages LEFT JOIN media m ON m.message_id = messages.id
+      WHERE messages.chat_id = ?
+      ORDER BY messages.timestamp ASC, messages.id ASC''', [chatId]);
     return rows.map(Message.fromMap).toList();
+  }
+
+  /// Captured files that never matched a notification message.
+  Future<List<MediaItem>> unlinkedMedia() async {
+    final db = await _database;
+    final rows = await db.query(
+      'media',
+      where: 'message_id IS NULL',
+      orderBy: 'file_ts DESC, id DESC',
+    );
+    return rows.map(MediaItem.fromMap).toList();
   }
 }

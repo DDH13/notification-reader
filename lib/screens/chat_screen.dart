@@ -7,6 +7,7 @@ import '../data/db.dart';
 import '../data/models.dart';
 import '../platform/listener_bridge.dart';
 import '../util.dart';
+import '../widgets/media_content.dart';
 import 'chat_list_screen.dart' show ChatAvatar;
 
 class ChatScreen extends StatefulWidget {
@@ -163,6 +164,10 @@ class _Bubble extends StatelessWidget {
     final deleted = message.isDeletedNotice;
     final time = DateFormat.jm().format(message.time);
     final width = MediaQuery.sizeOf(context).width * 0.78;
+    final kind = message.mediaKind;
+    final path = message.mediaPath;
+    final hasMedia = !deleted && kind != null && path != null;
+    final caption = hasMedia ? mediaCaption(message.text) : message.text;
 
     return Align(
       alignment: Alignment.centerLeft,
@@ -193,14 +198,20 @@ class _Bubble extends StatelessWidget {
                     fontSize: 13,
                     color: senderColor(message.sender),
                   )),
-            Text(
-              deleted ? '\u{1F6AB} ${message.text}' : message.text,
-              style: TextStyle(
-                fontSize: 15,
-                fontStyle: deleted ? FontStyle.italic : FontStyle.normal,
-                color: deleted ? Colors.black45 : Colors.black87,
+            if (hasMedia)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: MediaContent(kind: kind, path: path, mime: message.mediaMime),
               ),
-            ),
+            if (caption.isNotEmpty)
+              Text(
+                deleted ? '\u{1F6AB} $caption' : caption,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontStyle: deleted ? FontStyle.italic : FontStyle.normal,
+                  color: deleted ? Colors.black45 : Colors.black87,
+                ),
+              ),
             Align(
               alignment: Alignment.centerRight,
               child: Text(time,
